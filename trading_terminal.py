@@ -1214,26 +1214,20 @@ def signal_badge(direction: str) -> str:
 
 # ── Session-state init ────────────────────────────────────────────────────────
 def init_session_state():
-    defaults = {
-        "ml_engine":       MLEngine(),
-        "portfolio_mgr":   None,
-        "signal_gen":      None,
-        "data_cache":      {},
-        "last_analysis":   {},
-        "alerts":          [],
-        "auto_refresh":    False,
-        "refresh_interval": 60,
-        "trained_symbols": set(),
-        "analysis_history": []
-    }
-    for key, val in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = val
+    if "ml_engine" not in st.session_state:
+        st.session_state["ml_engine"] = MLEngine()
 
-    if st.session_state["signal_gen"] is None:
+    if "portfolio_mgr" not in st.session_state:
+        st.session_state["portfolio_mgr"] = PortfolioManager(100_000.0)
+
+    if "signal_gen" not in st.session_state:
         st.session_state["signal_gen"] = SignalGenerator(st.session_state["ml_engine"])
-if st.session_state["portfolio_mgr"] is None:
-    st.session_state["portfolio_mgr"] = PortfolioManager(100_000.0)
+
+    if "trained_symbols" not in st.session_state:
+        st.session_state["trained_symbols"] = set()
+
+    if "analysis_history" not in st.session_state:
+        st.session_state["analysis_history"] = []
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 def render_sidebar() -> Dict[str, Any]:
