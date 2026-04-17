@@ -1216,7 +1216,7 @@ def signal_badge(direction: str) -> str:
 def init_session_state():
     defaults = {
         "ml_engine":       MLEngine(),
-        "portfolio_mgr":   PortfolioManager(initial_equity=100_000.0),
+        "portfolio_mgr":   None,
         "signal_gen":      None,
         "data_cache":      {},
         "last_analysis":   {},
@@ -1232,7 +1232,8 @@ def init_session_state():
 
     if st.session_state["signal_gen"] is None:
         st.session_state["signal_gen"] = SignalGenerator(st.session_state["ml_engine"])
-
+if st.session_state["portfolio_mgr"] is None:
+    st.session_state["portfolio_mgr"] = PortfolioManager(100_000.0)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 def render_sidebar() -> Dict[str, Any]:
