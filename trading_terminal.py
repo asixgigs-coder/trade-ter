@@ -677,20 +677,28 @@ class SignalGenerator:
         bear_score = 0
         total_signals = 0
 
+        # RSI
         rsi = indicators.get("rsi", 50)
         if rsi < 30:
-            bull_score += 2; total_signals += 2
+            bull_score += 2
         elif rsi > 70:
-            bear_score += 2; total_signals += 2
-        else:
-            total_signals += 1
+            bear_score += 2
+        total_signals += 2
 
+        # MACD
         macd_hist = indicators.get("macd_hist", 0)
         if macd_hist > 0:
             bull_score += 1
         elif macd_hist < 0:
             bear_score += 1
         total_signals += 1
+
+        # EMA trend
+        if indicators.get("above_ema_20") and indicators.get("above_ema_50"):
+            bull_score += 2
+        elif not indicators.get("above_ema_20") and not indicators.get("above_ema_50"):
+            bear_score += 2
+        total_signals += 2
 
         # ML
         ml_result = self.ml.predict(symbol, df)
@@ -702,16 +710,16 @@ class SignalGenerator:
 
         net = bull_score - bear_score
 
-        if net >= 2:
+        if net >= 3:
             direction = "BUY"
-        elif net <= -2:
+        elif net <= -3:
             direction = "SELL"
         else:
             direction = "NEUTRAL"
 
         confidence = abs(net) / max(total_signals, 1)
 
-        # Risk
+        # Risk management
         if direction == "BUY":
             stop_loss = price - atr * 1.5
             take_profit = price + atr * 3
@@ -747,119 +755,6 @@ class SignalGenerator:
             risk_reward=abs(take_profit - price) / risk_per_share if risk_per_share else 0,
             notes=" | ".join(notes_parts)
         )
-
-
-# ============================================================
-# PORTFOLIO MANAGER
-# ============================================================
-class PortfolioManager:
-    def __init__(self, initial_equity: float = 100_000.0):
-        self.portfolio  = Portfolio(
-            initial_equity=initial_equity,
-            total_equity=initial_equity,
-            cash=initial_equity
-        )
-        self.trades:    List[Trade] = []
-        self.trade_counter = 0
-
-    def execute_trade(self, signal: TradingSignal, position_size: float) -> Optional[Trade]:
-        if signal.direction == "NEUTRAL":
-            return None
-
-        cost = signal.entry_price * position_size
-        if cost > self.portfolio.cash:
-            position_size = self.portfolio.cash / signal.entry_price
-            cost = signal.entry_price * position_size
-
-        if position_size <= 0:
-            return None
-
-        self.trade_counter += 1
-        trade = Trade(
-            id            = f"T{self.trade_counter:04d}",
-            symbol        = signal.symbol,
-            direction     = signal.direction,
-            entry_price   = signal.entry_price,
-            stop_loss     = signal.stop_loss,
-            take_profit   = signal.take_profit,
-            position_size = position_size,
-            entry_time    = signal.timestamp,
-            status        = "OPEN"
-        )
-
-        self.portfolio.cash -= cost
-        self.portfolio.open_positions[trade.id] = trade
-        self.trades.append(trade)
-        return trade
-
-    def update_positions(self, current_prices: Dict[str, float]):
-        closed_ids = []
-
-        for trade_id, trade in self.portfolio.open_positions.items():
-            price = current_prices.get(trade.symbol, trade.entry_price)
-
-            # Check stop loss / take profit
-            hit_sl = hit_tp = False
-            if trade.direction == "BUY":
-                hit_sl = price <= trade.stop_loss
-                hit_tp = price >= trade.take_profit
-            elif trade.direction == "SELL":
-                hit_sl = price >= trade.stop_loss
-                hit_tp = price <= trade.take_profit
-
-            if hit_sl or hit_tp:
-                trade.exit_price  = price
-                trade.exit_time   = datetime.datetime.now()
-                trade.exit_reason = "TAKE_PROFIT" if hit_tp else "STOP_LOSS"
-                trade.status      = "CLOSED"
-
-                if trade.direction == "BUY":
-                    trade.pnl = (price - trade.entry_price) * trade.position_size
-                else:
-                    trade.pnl = (trade.entry_price - price) * trade.position_size
-
-                trade.pnl_pct = trade.pnl / (trade.entry_price * trade.position_size)
-                self.portfolio.cash += price * trade.position_size
-
-                # Update stats
-                self.portfolio.total_trades  += 1
-                if trade.pnl > 0:
-                    self.portfolio.winning_trades += 1
-                else:
-                    self.portfolio.losing_trades += 1
-
-                closed_ids.append(trade_id)
-
-        for tid in closed_ids:
-            del self.portfolio.open_positions[tid]
-
-        # Recalculate equity
-        open_value = sum(
-            t.entry_price * t.position_size
-            for t in self.portfolio.open_positions.values()
-        )
-        self.portfolio.total_equity = self.portfolio.cash + open_value
-        self.portfolio.total_pnl    = self.portfolio.total_equity - self.portfolio.initial_equity
-        self.portfolio.total_pnl_pct = (
-            self.portfolio.total_pnl / self.portfolio.initial_equity * 100
-        )
-        self.portfolio.win_rate = (
-            self.portfolio.winning_trades / max(self.portfolio.total_trades, 1) * 100
-        )
-        self.portfolio.equity_curve.append(self.portfolio.total_equity)
-
-        # Drawdown
-        if self.portfolio.equity_curve:
-            peak = max(self.portfolio.equity_curve)
-            self.portfolio.max_drawdown = (
-                (peak - self.portfolio.total_equity) / peak * 100
-            )
-
-    def get_closed_trades(self) -> List[Trade]:
-        return [t for t in self.trades if t.status == "CLOSED"]
-
-    def get_open_trades(self) -> List[Trade]:
-        return list(self.portfolio.open_positions.values())
 
 
 # ============================================================
