@@ -668,200 +668,84 @@ class SignalGenerator:
     def __init__(self, ml_engine: MLEngine):
         self.ml = ml_engine
 
-    def generate(
-        self,
-        symbol:    str,
-        df:        pd.DataFrame,
-        indicators: Dict[str, Any],
-        risk_pct:  float = 1.0,
-        equity:    float = 100_000.0
-    ) -> TradingSignal:
+    def generate(self, symbol, df, indicators, risk_pct=1.0, equity=100_000.0):
 
         price = indicators.get("price", df["Close"].iloc[-1])
-        atr   = indicators.get("atr",   price * 0.01)
+        atr = indicators.get("atr", price * 0.01)
 
-        # ── Scoring ───────────────────────────────────────────
         bull_score = 0
         bear_score = 0
         total_signals = 0
 
-        # RSI
         rsi = indicators.get("rsi", 50)
         if rsi < 30:
             bull_score += 2; total_signals += 2
-        elif rsi < 45:
-            bull_score += 1; total_signals += 1
         elif rsi > 70:
             bear_score += 2; total_signals += 2
-        elif rsi > 55:
-            bear_score += 1; total_signals += 1
         else:
             total_signals += 1
 
-        # MACD
         macd_hist = indicators.get("macd_hist", 0)
-        macd_cross = indicators.get("macd_crossover", 0)
-        if macd_cross == 1:
-            bull_score += 2; total_signals += 2
-        elif macd_cross == -1:
-            bear_score += 2; total_signals += 2
-        elif macd_hist > 0:
-            bull_score += 1; total_signals += 1
+        if macd_hist > 0:
+            bull_score += 1
         elif macd_hist < 0:
-            bear_score += 1; total_signals += 1
-        else:
-            total_signals += 1
+            bear_score += 1
+        total_signals += 1
 
-        # EMA trend
-        if indicators.get("above_ema_20") and indicators.get("above_ema_50"):
-            bull_score += 2; total_signals += 2
-        elif not indicators.get("above_ema_20") and not indicators.get("above_ema_50"):
-            bear_score += 2; total_signals += 2
-        else:
-            total_signals += 2
-
-        # Bollinger Bands
-        bb_pct = indicators.get("bb_pct", 0.5)
-        if bb_pct < 0.1:
-            bull_score += 1; total_signals += 1
-        elif bb_pct > 0.9:
-            bear_score += 1; total_signals += 1
-        else:
-            total_signals += 1
-
-        # Stochastic
-        stoch_k = indicators.get("stoch_k", 50)
-        stoch_d = indicators.get("stoch_d", 50)
-        if stoch_k < 20 and stoch_d < 20:
-            bull_score += 1; total_signals += 1
-        elif stoch_k > 80 and stoch_d > 80:
-            bear_score += 1; total_signals += 1
-        else:
-            total_signals += 1
-
-        # ADX trend strength
-        adx = indicators.get("adx", 25)
-        adx_pos = indicators.get("adx_pos", 0)
-        adx_neg = indicators.get("adx_neg", 0)
-        if adx > 25:
-            if adx_pos > adx_neg:
-                bull_score += 1; total_signals += 1
-            else:
-                bear_score += 1; total_signals += 1
-        else:
-            total_signals += 1
-
-        # OBV trend
-        obv_trend = indicators.get("obv_trend", 0)
-        if obv_trend == 1:
-            bull_score += 1; total_signals += 1
-        elif obv_trend == -1:
-            bear_score += 1; total_signals += 1
-        else:
-            total_signals += 1
-
-        # Volume confirmation
-        vol_ratio = indicators.get("vol_ratio", 1.0)
-        if vol_ratio > 1.5:
-            if bull_score > bear_score:
-                bull_score += 1
-            else:
-                bear_score += 1
-            total_signals += 1
-        else:
-            total_signals += 1
-
-        # Williams %R
-        wr = indicators.get("williams_r", -50)
-        if wr < -80:
-            bull_score += 1; total_signals += 1
-        elif wr > -20:
-            bear_score += 1; total_signals += 1
-        else:
-            total_signals += 1
-
-        # CCI
-        cci = indicators.get("cci", 0)
-        if cci < -100:
-            bull_score += 1; total_signals += 1
-        elif cci > 100:
-            bear_score += 1; total_signals += 1
-        else:
-            total_signals += 1
-
-        # ── ML Score ─────────────────────────────────────────
+        # ML
         ml_result = self.ml.predict(symbol, df)
-        ml_score  = ml_result["score"]
+        ml_score = ml_result["score"]
 
-        ml_weight = 3
-        total_signals += ml_weight
-        bull_score += int(ml_score * ml_weight)
-        bear_score += int((1 - ml_score) * ml_weight)
+        bull_score += int(ml_score * 3)
+        bear_score += int((1 - ml_score) * 3)
+        total_signals += 3
 
-        # ── Determine Direction ───────────────────────────────
         net = bull_score - bear_score
-        raw_confidence = max(bull_score, bear_score) / max(total_signals, 1)
 
-        if net >= 3:
-            direction  = "BUY"
-            confidence = min(raw_confidence + 0.05, 1.0)
-        elif net <= -3:
-            direction  = "SELL"
-            confidence = min(raw_confidence + 0.05, 1.0)
+        if net >= 2:
+            direction = "BUY"
+        elif net <= -2:
+            direction = "SELL"
         else:
-            direction  = "NEUTRAL"
-            confidence = 1 - raw_confidence
+            direction = "NEUTRAL"
 
-        # ── Risk Management ───────────────────────────────────
-        atr_mult_sl = 1.5
-        atr_mult_tp = 3.0
+        confidence = abs(net) / max(total_signals, 1)
 
+        # Risk
         if direction == "BUY":
-            stop_loss   = price - atr * atr_mult_sl
-            take_profit = price + atr * atr_mult_tp
+            stop_loss = price - atr * 1.5
+            take_profit = price + atr * 3
         elif direction == "SELL":
-            stop_loss   = price + atr * atr_mult_sl
-            take_profit = price - atr * atr_mult_tp
+            stop_loss = price + atr * 1.5
+            take_profit = price - atr * 3
         else:
-            stop_loss   = price - atr * atr_mult_sl
-            take_profit = price + atr * atr_mult_tp
+            stop_loss = price - atr
+            take_profit = price + atr
 
         risk_per_share = abs(price - stop_loss)
-        risk_reward    = (
-            abs(take_profit - price) / risk_per_share
-            if risk_per_share > 0 else 0
-        )
+        risk_amount = equity * (risk_pct / 100)
 
-        # Position sizing (fixed % risk)
-        risk_amount   = equity * (risk_pct / 100)
-        position_size = (
-            risk_amount / risk_per_share
-            if risk_per_share <= 1e-9
-        else
-    position_size = risk_amount / risk_per_share
-        )
+        position_size = risk_amount / risk_per_share if risk_per_share > 0 else 0
 
         notes_parts = []
-        if rsi < 30:  notes_parts.append("RSI oversold")
-        if rsi > 70:  notes_parts.append("RSI overbought")
-        if macd_cross ==  1: notes_parts.append("MACD bullish cross")
-        if macd_cross == -1: notes_parts.append("MACD bearish cross")
-        if adx > 25:  notes_parts.append(f"Strong trend ADX={adx:.0f}")
-        if vol_ratio > 1.5: notes_parts.append(f"High volume {vol_ratio:.1f}x")
+        if rsi < 30:
+            notes_parts.append("RSI oversold")
+        if rsi > 70:
+            notes_parts.append("RSI overbought")
 
         return TradingSignal(
-            symbol      = symbol,
-            direction   = direction,
-            confidence  = confidence,
-            entry_price = price,
-            stop_loss   = stop_loss,
-            take_profit = take_profit,
-            timestamp   = datetime.datetime.now(),
-            timeframe   = "1h",
-            indicators  = indicators,
-            ml_score    = ml_score,
-            risk_reward = risk_reward,
-            notes       = " | ".join(notes_parts)
+            symbol=symbol,
+            direction=direction,
+            confidence=confidence,
+            entry_price=price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            timestamp=datetime.datetime.now(),
+            timeframe="1h",
+            indicators=indicators,
+            ml_score=ml_score,
+            risk_reward=abs(take_profit - price) / risk_per_share if risk_per_share else 0,
+            notes=" | ".join(notes_parts)
         )
 
 
@@ -1582,14 +1466,14 @@ def run_analysis(cfg: Dict[str, Any]) -> Dict[str, Any]:
     equity   = cfg["equity"]
 
     with st.spinner(f"🔄 Fetching data for {symbol}..."):
-        df = DataFetcher.fetch(symbol, period, interval)
+        df = DataFetcher().fetch(symbol, period, interval)
 
     if df is None or len(df) < 30:
         st.error(f"❌ Unable to fetch data for {symbol}")
         return {}
 
     with st.spinner("⚙️ Computing indicators..."):
-        indicators = IndicatorEngine.compute(df)
+        indicators = TechnicalAnalysis.compute(df)
 
     # ML Training
     ml_engine = st.session_state["ml_engine"]
