@@ -836,7 +836,7 @@ class SignalGenerator:
         risk_amount   = equity * (risk_pct / 100)
         position_size = (
             risk_amount / risk_per_share
-            if risk_per_share <= 1e-9:
+            if risk_per_share <= 1e-9 else
     position_size = 0
         else:
     position_size = risk_amount / risk_per_share
